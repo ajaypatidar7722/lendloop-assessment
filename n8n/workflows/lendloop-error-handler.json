@@ -1,0 +1,135 @@
+{
+  "id": "LendLoopErrHndlr",
+  "name": "LendLoop: Error handler",
+  "active": false,
+  "nodes": [
+    {
+      "id": "e6e92588-7687-571e-b721-6fb6e6fd19a2",
+      "name": "On workflow error",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        300
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "666aea6c-6a52-53b5-8674-341d19ad1c4e",
+      "name": "Email admin",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        260,
+        180
+      ],
+      "parameters": {
+        "fromEmail": "LendLoop <notifications@lendloop.local>",
+        "toEmail": "={{ $env.LENDLOOP_ALERT_EMAIL }}",
+        "subject": "=[LendLoop] Workflow failed: {{ $json.workflow.name }}",
+        "emailFormat": "text",
+        "text": "=An n8n workflow failed.\n\nWorkflow: {{ $json.workflow.name }}\nNode: {{ $json.execution?.lastNodeExecuted ?? '(trigger)' }}\nError: {{ $json.execution?.error?.message ?? $json.trigger?.error?.message }}\n\nExecution: {{ $json.execution?.url ?? 'n/a' }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "credentials": {
+        "smtp": {
+          "id": "LendLoopMailpit1",
+          "name": "Mailpit SMTP"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "61d305b5-edfc-53b2-8b17-e93a7c634d46",
+      "name": "Sign error report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        260,
+        420
+      ],
+      "parameters": {
+        "jsCode": "// Signs a request to Convex: HMAC-SHA256 over `${timestamp}.${rawBody}` with\n// LENDLOOP_INBOUND_SECRET, read from the container env (n8n/.env), never stored here.\nconst crypto = require('crypto');\nfunction signed(body) {\n  const raw = body === undefined ? '' : JSON.stringify(body);\n  const timestamp = String(Math.floor(Date.now() / 1000));\n  const signature = crypto\n    .createHmac('sha256', $env.LENDLOOP_INBOUND_SECRET)\n    .update(`${timestamp}.${raw}`)\n    .digest('hex');\n  return { raw, timestamp, signature };\n}\n\n// Reports the failed execution to Convex. executionId makes a retried report a no-op.\n// A trigger failure has no execution ID, so fall back to the trigger's timestamp.\nconst { execution, workflow, trigger } = $input.first().json;\nconst executionId = String(execution?.id ?? `trigger-${workflow?.id ?? 'unknown'}-${Date.now()}`);\nconst message = String(execution?.error?.message ?? trigger?.error?.message ?? 'Unknown error');\nreturn [\n  {\n    json: signed({\n      workflowName: workflow?.name ?? 'Unknown workflow',\n      executionId,\n      nodeName: execution?.lastNodeExecuted ?? undefined,\n      message: message.slice(0, 1000),\n    }),\n  },\n];\n"
+      }
+    },
+    {
+      "id": "285c825d-4880-532f-8deb-bf4b4485cee3",
+      "name": "Report to Convex",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        480,
+        420
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.CONVEX_SITE_URL }}/n8n/workflow-errors",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-LendLoop-Timestamp",
+              "value": "={{ $json.timestamp }}"
+            },
+            {
+              "name": "X-LendLoop-Signature",
+              "value": "={{ $json.signature }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 10000
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ $json.raw }}"
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000
+    }
+  ],
+  "connections": {
+    "On workflow error": {
+      "main": [
+        [
+          {
+            "node": "Email admin",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Sign error report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sign error report": {
+      "main": [
+        [
+          {
+            "node": "Report to Convex",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "UTC",
+    "saveManualExecutions": true,
+    "saveDataErrorExecution": "all"
+  },
+  "pinData": {},
+  "tags": []
+}

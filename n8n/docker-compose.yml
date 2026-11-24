@@ -1,0 +1,96 @@
+# LendLoop local automation stack: n8n + Postgres (n8n's own DB) + Mailpit (local inbox).
+#
+#   cp n8n/.env.example n8n/.env      # then fill in the secrets
+#   npm run infra:up                  # = docker compose -f n8n/docker-compose.yml up -d
+#
+# n8n UI:     http://localhost:5678
+# Mailpit UI: http://localhost:8025   (n8n sends SMTP to mailpit:1025)
+#
+# All secrets come from n8n/.env (gitignored). Compose reads it automatically
+# because it sits next to this file. `:?` makes startup fail loudly if one is missing.
+
+name: lendloop
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: n8n
+      POSTGRES_USER: n8n
+      POSTGRES_PASSWORD: ${DB_POSTGRESDB_PASSWORD:?set DB_POSTGRESDB_PASSWORD in n8n/.env}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U n8n -d n8n"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    # Not published to the host: only n8n talks to it.
+
+  n8n:
+    image: docker.n8n.io/n8nio/n8n:2.48.6
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mailpit:
+        condition: service_started
+    ports:
+      - "127.0.0.1:5678:5678" # localhost only; expose webhooks via a tunnel, not 0.0.0.0
+    environment:
+      # Database
+      DB_TYPE: postgresdb
+      DB_POSTGRESDB_HOST: postgres
+      DB_POSTGRESDB_PORT: 5432
+      DB_POSTGRESDB_DATABASE: n8n
+      DB_POSTGRESDB_USER: n8n
+      DB_POSTGRESDB_PASSWORD: ${DB_POSTGRESDB_PASSWORD:?set DB_POSTGRESDB_PASSWORD in n8n/.env}
+
+      # Encrypts stored credentials. Losing it makes saved credentials unreadable.
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY:?set N8N_ENCRYPTION_KEY in n8n/.env}
+      N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS: "true"
+
+      # Runtime
+      N8N_HOST: localhost
+      N8N_PORT: 5678
+      N8N_PROTOCOL: http
+      # Public URL Convex uses to reach the webhook (your tunnel URL). Defaults to localhost.
+      WEBHOOK_URL: ${N8N_WEBHOOK_URL:-http://localhost:5678/}
+      GENERIC_TIMEZONE: UTC
+      TZ: UTC
+
+      # Workflows read the shared HMAC secrets via {{$env.*}}; n8n 2.x blocks this by default.
+      # Only the variables listed in this file exist in the container, so this exposes nothing else.
+      N8N_BLOCK_ENV_ACCESS_IN_NODE: "false"
+      # Code nodes compute and verify HMAC signatures with Node's crypto module (nothing else is allowed).
+      NODE_FUNCTION_ALLOW_BUILTIN: crypto
+
+      # Data minimization: execution logs contain recipient emails, so keep them for 7 days only.
+      EXECUTIONS_DATA_PRUNE: "true"
+      EXECUTIONS_DATA_MAX_AGE: 168
+      N8N_DIAGNOSTICS_ENABLED: "false"
+      N8N_PERSONALIZATION_ENABLED: "false"
+
+      # LendLoop integration
+      CONVEX_SITE_URL: ${CONVEX_SITE_URL:?set CONVEX_SITE_URL in n8n/.env}
+      LENDLOOP_OUTBOUND_SECRET: ${LENDLOOP_OUTBOUND_SECRET:?set LENDLOOP_OUTBOUND_SECRET in n8n/.env}
+      LENDLOOP_INBOUND_SECRET: ${LENDLOOP_INBOUND_SECRET:?set LENDLOOP_INBOUND_SECRET in n8n/.env}
+      # Not secrets: link target in emails, and where the error workflow sends alerts (Mailpit catches all).
+      LENDLOOP_APP_URL: ${LENDLOOP_APP_URL:-http://localhost:3000}
+      LENDLOOP_ALERT_EMAIL: ${LENDLOOP_ALERT_EMAIL:-admin@lendloop.local}
+    volumes:
+      - n8n_data:/home/node/.n8n
+      # Exported workflow JSON lives in the repo; import/export via `docker compose exec n8n n8n ...`
+      - ./workflows:/home/node/workflows
+
+  mailpit:
+    image: axllent/mailpit:v1.34.0
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8025:8025" # web inbox
+    # SMTP (1025) stays on the internal network; only n8n sends mail.
+
+volumes:
+  postgres_data:
+  n8n_data:
