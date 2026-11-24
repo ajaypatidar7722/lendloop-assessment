@@ -37,6 +37,7 @@ export default defineSchema({
     removedAt: v.optional(v.number()),
     removedBy: v.optional(v.id("users")),
   })
+    .index("by_removedAt", ["removedAt"]) // all active tools, newest first
     .index("by_removedAt_and_category", ["removedAt", "category"])
     .index("by_ownerId_and_removedAt", ["ownerId", "removedAt"]),
 
@@ -51,6 +52,9 @@ export default defineSchema({
     returnedAt: v.optional(v.number()),
   })
     .index("by_toolId_and_status", ["toolId", "status"])
+    // Unfiltered "Lending" / "Borrowing" lists, newest first (status order would interleave).
+    .index("by_ownerId", ["ownerId"])
+    .index("by_borrowerId", ["borrowerId"])
     .index("by_ownerId_and_status", ["ownerId", "status"])
     .index("by_borrowerId_and_status", ["borrowerId", "status"])
     .index("by_status_and_endDate", ["status", "endDate"]),

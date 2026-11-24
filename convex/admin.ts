@@ -1,11 +1,17 @@
 import { paginationOptsValidator, paginationResultValidator } from "convex/server";
 import { v } from "convex/values";
+import type { Id } from "./_generated/dataModel";
 import { assertIsoDate } from "./lib/dates";
 import { appError } from "./lib/errors";
 import { adminMutation, adminQuery } from "./lib/functions";
-import { declinePending } from "./lib/loanRules";
+import { declinePending, isOnLoan } from "./lib/loanRules";
 import { userLoader } from "./lib/views";
-import { loanStatusValidator, roleValidator } from "./lib/validators";
+import {
+  categoryValidator,
+  conditionValidator,
+  loanStatusValidator,
+  roleValidator,
+} from "./lib/validators";
 
 // Everything here requires role "admin", enforced by the adminQuery/adminMutation
 // wrappers, not just by hiding the admin page in the UI.
@@ -43,7 +49,7 @@ export const allLoans = adminQuery({
             .paginate(paginationOpts);
 
     const getUser = userLoader(ctx);
-    const person = async (id: Parameters<typeof getUser>[0]) => {
+    const person = async (id: Id<"users">) => {
       const user = await getUser(id);
       return user ? { name: user.name, email: user.email } : { name: "Deleted user", email: "" };
     };
@@ -67,27 +73,90 @@ export const allLoans = adminQuery({
   },
 });
 
-/** For the Trusted Lender toggles on the admin page. */
+/**
+ * Moderation list: every active listing with its owner's full name and email
+ * (admins only) and current availability, newest first, optionally one category.
+ */
+export const listings = adminQuery({
+  args: {
+    paginationOpts: paginationOptsValidator,
+    today: v.string(),
+    category: v.optional(categoryValidator),
+  },
+  returns: paginationResultValidator(
+    v.object({
+      _id: v.id("tools"),
+      _creationTime: v.number(),
+      name: v.string(),
+      category: categoryValidator,
+      condition: conditionValidator,
+      owner: v.object({ name: v.string(), email: v.string(), trustedLender: v.boolean() }),
+      onLoan: v.boolean(),
+    }),
+  ),
+  handler: async (ctx, { paginationOpts, today, category }) => {
+    assertIsoDate(today, "today");
+    const result =
+      category === undefined
+        ? await ctx.db
+            .query("tools")
+            .withIndex("by_removedAt", (q) => q.eq("removedAt", undefined))
+            .order("desc")
+            .paginate(paginationOpts)
+        : await ctx.db
+            .query("tools")
+            .withIndex("by_removedAt_and_category", (q) =>
+              q.eq("removedAt", undefined).eq("category", category),
+            )
+            .order("desc")
+            .paginate(paginationOpts);
+
+    const getUser = userLoader(ctx);
+    const page = [];
+    for (const tool of result.page) {
+      const owner = await getUser(tool.ownerId);
+      page.push({
+        _id: tool._id,
+        _creationTime: tool._creationTime,
+        name: tool.name,
+        category: tool.category,
+        condition: tool.condition,
+        owner: owner
+          ? { name: owner.name, email: owner.email, trustedLender: owner.trustedLender }
+          : { name: "Deleted user", email: "", trustedLender: false },
+        onLoan: await isOnLoan(ctx, tool._id, today),
+      });
+    }
+    return { ...result, page };
+  },
+});
+
+/** Users, newest first, for the role column and Trusted Lender toggles. */
 export const listUsers = adminQuery({
-  args: {},
-  returns: v.array(
+  args: { paginationOpts: paginationOptsValidator },
+  returns: paginationResultValidator(
     v.object({
       _id: v.id("users"),
+      _creationTime: v.number(),
       name: v.string(),
       email: v.string(),
       role: roleValidator,
       trustedLender: v.boolean(),
     }),
   ),
-  handler: async (ctx) => {
-    const users = await ctx.db.query("users").take(500);
-    return users.map(({ _id, name, email, role, trustedLender }) => ({
-      _id,
-      name,
-      email,
-      role,
-      trustedLender,
-    }));
+  handler: async (ctx, { paginationOpts }) => {
+    const result = await ctx.db.query("users").order("desc").paginate(paginationOpts);
+    return {
+      ...result,
+      page: result.page.map(({ _id, _creationTime, name, email, role, trustedLender }) => ({
+        _id,
+        _creationTime,
+        name,
+        email,
+        role,
+        trustedLender,
+      })),
+    };
   },
 });
 

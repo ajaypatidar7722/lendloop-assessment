@@ -43,8 +43,13 @@ export const toolCardValidator = v.object({
   description: v.string(),
   owner: v.object({ firstName: v.string(), trustedLender: v.boolean() }),
   isMine: v.boolean(),
+  /** The viewer already has a pending request for this tool (the server rejects a second one). */
+  requestPending: v.boolean(),
   availability: v.union(v.literal("available"), v.literal("on_loan")),
 });
+
+/** Upper bound on one user's pending requests read per page of cards. */
+const MAX_PENDING_PER_VIEWER = 100;
 
 export async function toToolCards(
   ctx: QueryCtx,
@@ -53,6 +58,17 @@ export async function toToolCards(
   today: string,
 ) {
   const getUser = userLoader(ctx);
+  // One indexed read for the whole page, not one per tool.
+  const pendingToolIds = new Set(
+    (
+      await ctx.db
+        .query("loans")
+        .withIndex("by_borrowerId_and_status", (q) =>
+          q.eq("borrowerId", viewerId).eq("status", "pending"),
+        )
+        .take(MAX_PENDING_PER_VIEWER)
+    ).map((loan) => loan.toolId),
+  );
   const cards = [];
   for (const tool of tools) {
     const owner = await getUser(tool.ownerId);
@@ -67,6 +83,7 @@ export async function toToolCards(
         trustedLender: owner?.trustedLender ?? false,
       },
       isMine: tool.ownerId === viewerId,
+      requestPending: pendingToolIds.has(tool._id),
       availability: (await isOnLoan(ctx, tool._id, today))
         ? ("on_loan" as const)
         : ("available" as const),
@@ -137,7 +154,11 @@ async function loanActivity(ctx: QueryCtx, loanId: Id<"loans">) {
 export const loanViewValidator = v.object({
   _id: v.id("loans"),
   _creationTime: v.number(),
-  tool: v.object({ _id: v.id("tools"), name: v.string(), removed: v.boolean() }),
+  tool: v.object({
+    _id: v.id("tools"),
+    name: v.string(),
+    removed: v.boolean(),
+  }),
   /** The other person: the owner on "My requests", the borrower on "Incoming". */
   counterparty: v.object({ firstName: v.string(), trustedLender: v.boolean() }),
   status: loanStatusValidator,

@@ -1,5 +1,5 @@
+import { paginationOptsValidator, paginationResultValidator } from "convex/server";
 import { v } from "convex/values";
-import type { Doc } from "./_generated/dataModel";
 import { assertLoanParty, getCurrentUser } from "./lib/auth";
 import { assertIsoDate, daysBetween, todayUtc } from "./lib/dates";
 import { appError } from "./lib/errors";
@@ -7,23 +7,22 @@ import { authedMutation, authedQuery, publicQuery } from "./lib/functions";
 import {
   declinePending,
   findApprovedOverlap,
+  isOnLoan,
   loansForTool,
   MAX_LOAN_DAYS,
   transitionLoan,
 } from "./lib/loanRules";
 import { enqueueNotification } from "./lib/notify";
+import { loanStatusValidator } from "./lib/validators";
 import { loanViewValidator, toLoanViews } from "./lib/views";
-
-const MAX_LOANS = 100;
-
-const newestFirst = (a: Doc<"loans">, b: Doc<"loans">) => b._creationTime - a._creationTime;
 
 // ── Borrower actions ─────────────────────────────────────────────────────────
 
 /**
  * Ask to borrow a tool for [startDate, endDate] (inclusive, YYYY-MM-DD).
- * Rules: not your own tool; start ≥ today; start ≤ end; at most 30 days;
- * no overlap with an approved loan; one pending request per tool per borrower.
+ * Rules: not your own tool; not while it's on loan (until it's marked returned);
+ * start ≥ today; start ≤ end; at most 30 days; no overlap with an approved loan;
+ * one pending request per tool per borrower.
  */
 export const request = authedMutation({
   args: { toolId: v.id("tools"), startDate: v.string(), endDate: v.string() },
@@ -45,6 +44,14 @@ export const request = authedMutation({
       throw appError("INVALID", `Loans can be at most ${MAX_LOAN_DAYS} days.`);
     }
 
+    // While someone has the tool (an approved loan has started and it hasn't been
+    // marked returned, overdue included), nobody else can queue up for it.
+    if (await isOnLoan(ctx, toolId, today)) {
+      throw appError(
+        "CONFLICT",
+        "This tool is on loan right now. You can request it once it's been returned.",
+      );
+    }
     if (await findApprovedOverlap(ctx, toolId, { start: startDate, end: endDate, today })) {
       throw appError(
         "CONFLICT",
@@ -146,18 +153,34 @@ export const markReturned = authedMutation({
 // `today` comes from the client because queries can't read the clock
 // (that would break caching). It only affects the overdue flag.
 
-/** "My requests": loans where I'm the borrower, newest first. */
+const loanPageArgs = {
+  paginationOpts: paginationOptsValidator,
+  today: v.string(),
+  status: v.optional(loanStatusValidator),
+};
+
+/** "Borrowing" tab: loans where I'm the borrower, newest first, optionally one status. */
 export const myRequests = authedQuery({
-  args: { today: v.string() },
-  returns: v.array(loanViewValidator),
-  handler: async (ctx, { today }) => {
+  args: loanPageArgs,
+  returns: paginationResultValidator(loanViewValidator),
+  handler: async (ctx, { paginationOpts, today, status }) => {
     assertIsoDate(today, "today");
-    const loans = await ctx.db
-      .query("loans")
-      .withIndex("by_borrowerId_and_status", (q) => q.eq("borrowerId", ctx.user._id))
-      .take(MAX_LOANS);
-    loans.sort(newestFirst);
-    return await toLoanViews(ctx, loans, (loan) => loan.ownerId, today);
+    const me = ctx.user._id;
+    const result =
+      status === undefined
+        ? await ctx.db
+            .query("loans")
+            .withIndex("by_borrowerId", (q) => q.eq("borrowerId", me))
+            .order("desc")
+            .paginate(paginationOpts)
+        : await ctx.db
+            .query("loans")
+            .withIndex("by_borrowerId_and_status", (q) =>
+              q.eq("borrowerId", me).eq("status", status),
+            )
+            .order("desc")
+            .paginate(paginationOpts);
+    return { ...result, page: await toLoanViews(ctx, result.page, (l) => l.ownerId, today) };
   },
 });
 
@@ -196,17 +219,25 @@ export const pendingCounts = publicQuery({
   },
 });
 
-/** "Incoming requests": loans on my tools, newest first. */
+/** "Lending" tab: loans on my tools, newest first, optionally one status. */
 export const incoming = authedQuery({
-  args: { today: v.string() },
-  returns: v.array(loanViewValidator),
-  handler: async (ctx, { today }) => {
+  args: loanPageArgs,
+  returns: paginationResultValidator(loanViewValidator),
+  handler: async (ctx, { paginationOpts, today, status }) => {
     assertIsoDate(today, "today");
-    const loans = await ctx.db
-      .query("loans")
-      .withIndex("by_ownerId_and_status", (q) => q.eq("ownerId", ctx.user._id))
-      .take(MAX_LOANS);
-    loans.sort(newestFirst);
-    return await toLoanViews(ctx, loans, (loan) => loan.borrowerId, today);
+    const me = ctx.user._id;
+    const result =
+      status === undefined
+        ? await ctx.db
+            .query("loans")
+            .withIndex("by_ownerId", (q) => q.eq("ownerId", me))
+            .order("desc")
+            .paginate(paginationOpts)
+        : await ctx.db
+            .query("loans")
+            .withIndex("by_ownerId_and_status", (q) => q.eq("ownerId", me).eq("status", status))
+            .order("desc")
+            .paginate(paginationOpts);
+    return { ...result, page: await toLoanViews(ctx, result.page, (l) => l.borrowerId, today) };
   },
 });
