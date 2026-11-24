@@ -1,21 +1,26 @@
 "use client";
 
-import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
-import { useState } from "react";
-import { CategoryBadge, StatusBadge, TrustedBadge } from "@/components/badges";
+import { useMutation, usePaginatedQuery } from "convex/react";
+import { formatDistanceToNow } from "date-fns";
+import { ClipboardListIcon, ShieldCheckIcon, UsersIcon, WrenchIcon } from "lucide-react";
+import { useState, type ReactNode } from "react";
+import Avatar from "@/components/Avatar";
+import {
+  AvailabilityBadge,
+  CategoryBadge,
+  ConditionBadge,
+  StatusBadge,
+  TrustedBadge,
+} from "@/components/badges";
+import CategoryFilter from "@/components/CategoryFilter";
 import ConfirmButton from "@/components/ConfirmButton";
 import EmptyState from "@/components/EmptyState";
 import ListSkeleton from "@/components/ListSkeleton";
 import PageHeader from "@/components/PageHeader";
+import InfiniteScroll from "@/components/InfiniteScroll";
+import StatusFilter from "@/components/StatusFilter";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -26,31 +31,40 @@ import {
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { withToast } from "@/lib/errors";
-import { formatRange, STATUS_LABELS } from "@/lib/format";
+import { formatRange } from "@/lib/format";
 import { useMe, useToday } from "@/lib/hooks";
+import { cn } from "@/lib/utils";
 import { api } from "@/convex/_generated/api";
-import type { LoanStatus } from "@/convex/lib/validators";
+import type { Category, LoanStatus } from "@/convex/lib/validators";
+
+const PAGE_SIZE = 10;
 
 export default function AdminView() {
   return (
     <>
       <PageHeader
         title="Admin"
-        description="All loans, listing moderation and Trusted Lender badges."
+        description="Every loan, listing moderation and Trusted Lender badges."
       />
-      <Tabs defaultValue="loans">
-        <TabsList>
-          <TabsTrigger value="loans">Loans</TabsTrigger>
-          <TabsTrigger value="listings">Listings</TabsTrigger>
-          <TabsTrigger value="users">Users</TabsTrigger>
+      <Tabs defaultValue="loans" className="gap-5">
+        <TabsList className="h-11 w-full p-1 sm:w-fit">
+          <TabsTrigger value="loans" className="px-4">
+            <ClipboardListIcon aria-hidden /> Loans
+          </TabsTrigger>
+          <TabsTrigger value="listings" className="px-4">
+            <WrenchIcon aria-hidden /> Listings
+          </TabsTrigger>
+          <TabsTrigger value="users" className="px-4">
+            <UsersIcon aria-hidden /> Users
+          </TabsTrigger>
         </TabsList>
-        <TabsContent value="loans" className="mt-4">
+        <TabsContent value="loans">
           <LoansTab />
         </TabsContent>
-        <TabsContent value="listings" className="mt-4">
+        <TabsContent value="listings">
           <ListingsTab />
         </TabsContent>
-        <TabsContent value="users" className="mt-4">
+        <TabsContent value="users">
           <UsersTab />
         </TabsContent>
       </Tabs>
@@ -58,203 +72,258 @@ export default function AdminView() {
   );
 }
 
-const STATUSES = Object.keys(STATUS_LABELS) as LoanStatus[];
+// ── Shared table bits ────────────────────────────────────────────────────────
+
+function TablePanel({ children }: { children: ReactNode }) {
+  return <div className="overflow-hidden rounded-xl border bg-card shadow-xs">{children}</div>;
+}
+
+function Head({ children, className }: { children?: ReactNode; className?: string }) {
+  return (
+    <TableHead
+      className={cn(
+        "h-10 bg-muted/60 text-xs font-semibold tracking-wide text-muted-foreground uppercase",
+        className,
+      )}
+    >
+      {children}
+    </TableHead>
+  );
+}
+
+function Person({ name, email }: { name: string; email: string }) {
+  return (
+    <div className="flex min-w-0 items-center gap-2.5">
+      <Avatar name={name} />
+      <div className="flex min-w-0 flex-col">
+        <span className="truncate font-medium">{name}</span>
+        {email && <span className="truncate text-xs text-muted-foreground">{email}</span>}
+      </div>
+    </div>
+  );
+}
+
+function Ago({ at }: { at: number }) {
+  return (
+    <span className="text-muted-foreground" title={new Date(at).toLocaleString()}>
+      {formatDistanceToNow(at, { addSuffix: true })}
+    </span>
+  );
+}
+
+// ── Loans ────────────────────────────────────────────────────────────────────
 
 function LoansTab() {
   const today = useToday();
-  const [status, setStatus] = useState<LoanStatus | "all">("all");
-  const {
-    results,
-    status: pageStatus,
-    loadMore,
-  } = usePaginatedQuery(
-    api.admin.allLoans,
-    today ? { today, status: status === "all" ? undefined : status } : "skip",
-    { initialNumItems: 25 },
-  );
+  const [status, setStatus] = useState<LoanStatus | undefined>();
+  const loans = usePaginatedQuery(api.admin.allLoans, today ? { today, status } : "skip", {
+    initialNumItems: PAGE_SIZE,
+  });
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-center gap-2">
-        <span className="text-sm text-muted-foreground">Status</span>
-        <Select value={status} onValueChange={(v) => setStatus(v as LoanStatus | "all")}>
-          <SelectTrigger className="w-40">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All loans</SelectItem>
-            {STATUSES.map((s) => (
-              <SelectItem key={s} value={s}>
-                {STATUS_LABELS[s]}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-
-      {pageStatus === "LoadingFirstPage" ? (
+      <StatusFilter value={status} onChange={setStatus} />
+      {loans.status === "LoadingFirstPage" ? (
         <ListSkeleton rows={5} />
-      ) : results.length === 0 ? (
+      ) : loans.results.length === 0 ? (
         <EmptyState title="No loans match this filter" />
       ) : (
-        <div className="rounded-xl border bg-card">
+        <TablePanel>
           <Table>
             <TableHeader>
-              <TableRow>
-                <TableHead>Tool</TableHead>
-                <TableHead>Lender</TableHead>
-                <TableHead>Borrower</TableHead>
-                <TableHead>Dates</TableHead>
-                <TableHead>Status</TableHead>
+              <TableRow className="hover:bg-transparent">
+                <Head className="pl-4">Tool</Head>
+                <Head>Lender</Head>
+                <Head>Borrower</Head>
+                <Head>Dates</Head>
+                <Head className="pr-4">Status</Head>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {results.map((loan) => (
-                <TableRow key={loan._id}>
-                  <TableCell className="font-medium">{loan.toolName}</TableCell>
-                  <TableCell>
-                    <Person name={loan.owner.name} email={loan.owner.email} />
+              {loans.results.map((loan) => (
+                <TableRow key={loan._id} className={cn(loan.isOverdue && "bg-destructive/5")}>
+                  <TableCell className="py-3 pl-4">
+                    <div className="flex flex-col">
+                      <span className="font-semibold">{loan.toolName}</span>
+                      <span className="text-xs">
+                        Requested <Ago at={loan._creationTime} />
+                      </span>
+                    </div>
                   </TableCell>
                   <TableCell>
-                    <Person name={loan.borrower.name} email={loan.borrower.email} />
+                    <Person {...loan.owner} />
+                  </TableCell>
+                  <TableCell>
+                    <Person {...loan.borrower} />
                   </TableCell>
                   <TableCell className="whitespace-nowrap">
                     {formatRange(loan.startDate, loan.endDate)}
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="pr-4">
                     <StatusBadge status={loan.status} overdue={loan.isOverdue} />
                   </TableCell>
                 </TableRow>
               ))}
             </TableBody>
           </Table>
-        </div>
+        </TablePanel>
       )}
-
-      {pageStatus === "CanLoadMore" && (
-        <Button variant="outline" className="self-center" onClick={() => loadMore(25)}>
-          Load more
-        </Button>
-      )}
+      <InfiniteScroll list={loans} pageSize={PAGE_SIZE} />
     </div>
   );
 }
 
-function Person({ name, email }: { name: string; email: string }) {
-  return (
-    <div className="flex flex-col">
-      <span>{name}</span>
-      <span className="text-xs text-muted-foreground">{email}</span>
-    </div>
-  );
-}
+// ── Listings ─────────────────────────────────────────────────────────────────
 
 function ListingsTab() {
   const today = useToday();
-  const tools = useQuery(api.tools.list, today ? { today } : "skip");
+  const [category, setCategory] = useState<Category | undefined>();
+  const tools = usePaginatedQuery(api.admin.listings, today ? { today, category } : "skip", {
+    initialNumItems: PAGE_SIZE,
+  });
   const removeTool = useMutation(api.admin.removeTool);
 
-  if (tools === undefined) return <ListSkeleton rows={5} />;
-  if (tools.length === 0) return <EmptyState title="No active listings" />;
-
   return (
-    <div className="rounded-xl border bg-card">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Tool</TableHead>
-            <TableHead>Category</TableHead>
-            <TableHead>Lender</TableHead>
-            <TableHead>Status</TableHead>
-            <TableHead className="text-right">Moderation</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {tools.map((tool) => (
-            <TableRow key={tool._id}>
-              <TableCell className="font-medium">{tool.name}</TableCell>
-              <TableCell>
-                <CategoryBadge category={tool.category} />
-              </TableCell>
-              <TableCell>{tool.isMine ? "You" : tool.owner.firstName}</TableCell>
-              <TableCell>{tool.availability === "on_loan" ? "On loan" : "Available"}</TableCell>
-              <TableCell className="text-right">
-                <ConfirmButton
-                  title={`Remove "${tool.name}"?`}
-                  description="The listing disappears for everyone and pending requests are declined. Existing loans keep their history."
-                  confirmLabel="Remove listing"
-                  onConfirm={() =>
-                    withToast(() => removeTool({ toolId: tool._id }), "Listing removed.")
-                  }
-                >
-                  Remove
-                </ConfirmButton>
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
+    <div className="flex flex-col gap-4">
+      <CategoryFilter value={category} onChange={setCategory} />
+      {tools.status === "LoadingFirstPage" ? (
+        <ListSkeleton rows={5} />
+      ) : tools.results.length === 0 ? (
+        <EmptyState title="No active listings" />
+      ) : (
+        <TablePanel>
+          <Table>
+            <TableHeader>
+              <TableRow className="hover:bg-transparent">
+                <Head className="pl-4">Tool</Head>
+                <Head>Category</Head>
+                <Head>Lender</Head>
+                <Head>Status</Head>
+                <Head>Listed</Head>
+                <Head className="pr-4 text-right">Moderation</Head>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {tools.results.map((tool) => (
+                <TableRow key={tool._id}>
+                  <TableCell className="py-3 pl-4">
+                    <div className="flex flex-col items-start gap-1">
+                      <span className="font-semibold">{tool.name}</span>
+                      <ConditionBadge condition={tool.condition} />
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <CategoryBadge category={tool.category} />
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex items-center gap-2">
+                      <Person name={tool.owner.name} email={tool.owner.email} />
+                      {tool.owner.trustedLender && <TrustedBadge compact />}
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <AvailabilityBadge availability={tool.onLoan ? "on_loan" : "available"} />
+                  </TableCell>
+                  <TableCell className="whitespace-nowrap">
+                    <Ago at={tool._creationTime} />
+                  </TableCell>
+                  <TableCell className="pr-4 text-right">
+                    <ConfirmButton
+                      title={`Remove "${tool.name}"?`}
+                      description="The listing disappears for everyone and pending requests are declined. Existing loans keep their history."
+                      confirmLabel="Remove listing"
+                      onConfirm={() =>
+                        withToast(() => removeTool({ toolId: tool._id }), "Listing removed.")
+                      }
+                    >
+                      Remove
+                    </ConfirmButton>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </TablePanel>
+      )}
+      <InfiniteScroll list={tools} pageSize={PAGE_SIZE} />
     </div>
   );
 }
 
+// ── Users ────────────────────────────────────────────────────────────────────
+
 function UsersTab() {
   const me = useMe();
-  const users = useQuery(api.admin.listUsers);
+  const users = usePaginatedQuery(api.admin.listUsers, {}, { initialNumItems: PAGE_SIZE });
   const setTrusted = useMutation(api.users.setTrusted);
 
-  if (users === undefined) return <ListSkeleton rows={4} />;
-
   return (
-    <div className="rounded-xl border bg-card">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>User</TableHead>
-            <TableHead>Role</TableHead>
-            <TableHead>Trusted Lender</TableHead>
-            <TableHead className="text-right">Action</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {users.map((user) => (
-            <TableRow key={user._id}>
-              <TableCell>
-                <Person
-                  name={user._id === me?._id ? `${user.name} (you)` : user.name}
-                  email={user.email}
-                />
-              </TableCell>
-              <TableCell>
-                <Badge variant={user.role === "admin" ? "default" : "secondary"}>{user.role}</Badge>
-              </TableCell>
-              <TableCell>
-                {user.trustedLender ? (
-                  <TrustedBadge />
-                ) : (
-                  <span className="text-muted-foreground">—</span>
-                )}
-              </TableCell>
-              <TableCell className="text-right">
-                <Button
-                  size="sm"
-                  variant={user.trustedLender ? "outline" : "secondary"}
-                  onClick={() =>
-                    withToast(
-                      () => setTrusted({ userId: user._id, trusted: !user.trustedLender }),
-                      user.trustedLender
-                        ? `${user.name} is no longer a Trusted Lender.`
-                        : `${user.name} is now a Trusted Lender.`,
-                    )
-                  }
-                >
-                  {user.trustedLender ? "Remove badge" : "Mark trusted"}
-                </Button>
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
+    <div className="flex flex-col gap-4">
+      {users.status === "LoadingFirstPage" ? (
+        <ListSkeleton rows={4} />
+      ) : (
+        <TablePanel>
+          <Table>
+            <TableHeader>
+              <TableRow className="hover:bg-transparent">
+                <Head className="pl-4">Member</Head>
+                <Head>Role</Head>
+                <Head>Trusted Lender</Head>
+                <Head>Joined</Head>
+                <Head className="pr-4 text-right">Action</Head>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {users.results.map((user) => (
+                <TableRow key={user._id}>
+                  <TableCell className="py-3 pl-4">
+                    <Person
+                      name={user._id === me?._id ? `${user.name} (you)` : user.name}
+                      email={user.email}
+                    />
+                  </TableCell>
+                  <TableCell>
+                    {user.role === "admin" ? (
+                      <Badge>
+                        <ShieldCheckIcon data-icon="inline-start" /> Admin
+                      </Badge>
+                    ) : (
+                      <Badge variant="secondary">Member</Badge>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    {user.trustedLender ? (
+                      <TrustedBadge />
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )}
+                  </TableCell>
+                  <TableCell className="whitespace-nowrap">
+                    <Ago at={user._creationTime} />
+                  </TableCell>
+                  <TableCell className="pr-4 text-right">
+                    <Button
+                      size="sm"
+                      variant={user.trustedLender ? "outline" : "secondary"}
+                      onClick={() =>
+                        withToast(
+                          () => setTrusted({ userId: user._id, trusted: !user.trustedLender }),
+                          user.trustedLender
+                            ? `${user.name} is no longer a Trusted Lender.`
+                            : `${user.name} is now a Trusted Lender.`,
+                        )
+                      }
+                    >
+                      {user.trustedLender ? "Remove badge" : "Mark trusted"}
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </TablePanel>
+      )}
+      <InfiniteScroll list={users} pageSize={PAGE_SIZE} />
     </div>
   );
 }

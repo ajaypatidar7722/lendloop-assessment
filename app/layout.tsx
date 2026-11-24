@@ -26,7 +26,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
               LendLoop · a neighborhood tool-lending board
             </footer>
             {/* Light-only theme, so pin the toaster instead of following the OS. */}
-            <Toaster theme="light" richColors closeButton position="bottom-right" />
+            <Toaster theme="light" richColors position="bottom-right" />
           </ConvexClientProvider>
         </ClerkProvider>
       </body>

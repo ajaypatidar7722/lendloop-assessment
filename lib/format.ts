@@ -70,25 +70,28 @@ const EVENT_NOUN: Record<LoanEventType, string> = {
 };
 
 /**
- * One activity line, phrased for whoever is looking:
- * "You were notified of the approval" / "Lender notified of the request" /
- * "Overdue reminder sent", plus "· 2 days ago".
+ * One timeline entry, phrased for whoever is looking: "You were notified of the
+ * approval" / "Lender notified of the request" / "Overdue reminder sent",
+ * plus a relative time ("2 days ago") shown underneath.
  */
-export function describeActivity(activity: LoanActivity, viewer: "owner" | "borrower"): string {
+export function describeActivity(
+  activity: LoanActivity,
+  viewer: "owner" | "borrower",
+): { text: string; when: string } {
   const when = formatDistanceToNow(activity.at, { addSuffix: true });
   const failed = activity.status === "failed";
 
   if (activity.kind === "overdue_reminder") {
     const to = viewer === "borrower" ? " to you" : "";
-    return `${failed ? "Overdue reminder failed" : `Overdue reminder sent${to}`} · ${when}`;
+    return { text: failed ? "Overdue reminder failed" : `Overdue reminder sent${to}`, when };
   }
 
   const recipient = activity.event ? LOAN_EVENT_RECIPIENT[activity.event] : null;
   const about = activity.event ? ` of ${EVENT_NOUN[activity.event]}` : "";
   const who = recipient === viewer ? "you" : recipient === "owner" ? "the lender" : "the borrower";
-  if (failed) return `Couldn't notify ${who}${about} · ${when}`;
+  if (failed) return { text: `Couldn't notify ${who}${about}`, when };
   const subject = who === "you" ? "You were" : who === "the lender" ? "Lender" : "Borrower";
-  return `${subject} notified${about} · ${when}`;
+  return { text: `${subject} notified${about}`, when };
 }
 
 /** Local calendar date (from the date picker) → "YYYY-MM-DD". */
