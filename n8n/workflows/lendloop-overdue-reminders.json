@@ -97,7 +97,7 @@
         "toEmail": "={{ $json.borrower.email }}",
         "subject": "=Reminder: please return the {{ $json.toolName }}",
         "emailFormat": "text",
-        "text": "=Hi {{ $json.borrower.firstName }},\n\nThe {{ $json.toolName }} you borrowed was due back on {{ $json.endDate }} ({{ $json.daysOverdue }} day{{ $json.daysOverdue === 1 ? '' : 's' }} ago). Please return it to its owner, who will mark it returned in LendLoop.\n\n{{ $env.LENDLOOP_APP_URL }}/app/requests\n\n\u2014 LendLoop",
+        "text": "=Hi {{ $json.borrower.firstName }},\n\nThe {{ $json.toolName }} you borrowed was due back on {{ $json.endDate }} ({{ $json.daysOverdue }} day{{ $json.daysOverdue === 1 ? '' : 's' }} ago). Please return it to its owner, who will mark it returned in LendLoop.\n\n{{ $env.LENDLOOP_APP_URL }}/requests?tab=borrowing\n\n\u2014 LendLoop",
         "options": {
           "appendAttribution": false
         }

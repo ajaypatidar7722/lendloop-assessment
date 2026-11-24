@@ -13,18 +13,19 @@ Tailwind + shadcn/ui · Mailpit (local inbox)
 | Requirement                              | Where                                                                                                                                    |
 | ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
 | Public page with tagline and tool list   | `/`: name and category only, from `tools.listPublic`; "Sign in to lend or borrow" opens Clerk                                            |
-| List, edit, remove your own tools        | `/app/listings` → `tools.create` / `update` / `remove`                                                                                   |
-| Browse tools with availability, filter   | `/app/tools` → `tools.list` (Available / On loan, category filter)                                                                       |
+| List, edit, remove your own tools        | `/listings` → `tools.create` / `update` / `remove`                                                                                       |
+| Browse tools with availability, filter   | `/tools` → `tools.list` (Available / On loan, category filter, infinite scroll)                                                          |
 | Request to borrow for a date range       | Date-range picker → `loans.request`                                                                                                      |
-| Approve / decline / mark returned        | `/app/incoming` → `loans.approve` / `decline` / `markReturned` (owner only)                                                              |
-| My listings, My requests, Incoming views | `/app/listings`, `/app/requests`, `/app/incoming`, with pending-count badges in the nav                                                  |
-| Admin role                               | `/admin`: all loans (paginated, filter by status), remove any listing, toggle Trusted Lender                                             |
+| Approve / decline / mark returned        | `/requests` Lending tab → `loans.approve` / `decline` / `markReturned` (owner only)                                                      |
+| My listings, My requests, Incoming views | `/listings`, and `/requests` with **Lending** / **Borrowing** tabs, status filters, pending-count badges and infinite scroll             |
+| Admin role                               | `/admin`: loans, listings and users tables (infinite scroll, filterable); remove any listing; toggle Trusted Lender                      |
 | Request notification workflow            | `n8n/workflows/lendloop-request-notification.json`                                                                                       |
 | Overdue reminder workflow                | `n8n/workflows/lendloop-overdue-reminders.json` (daily, writes status back)                                                              |
 | Error workflow                           | `n8n/workflows/lendloop-error-handler.json`                                                                                              |
 | **Bonus:** automation activity per loan  | Every loan card shows e.g. "Lender notified of the request · 5 minutes ago" or "Overdue reminder sent · 2 days ago", and failures in red |
 
-Loan rules enforced on the server: no borrowing your own tool, no past start dates, at most
+Loan rules enforced on the server: no borrowing your own tool, no requests while the tool is on
+loan (until it is marked returned), no past start dates, at most
 30 days, no overlap with an approved loan (an overdue loan keeps the tool busy until it's
 marked returned), one pending request per tool per borrower. Approving a request declines the
 other pending requests for overlapping dates. Status changes follow a fixed state machine
@@ -231,7 +232,7 @@ a typed `env` object.
 ## Project structure
 
 ```
-app/                 Pages: public home, /app/* (signed in), /admin
+app/                 Pages: public home, (app)/ route group for signed-in pages, admin/
 components/          UI components (shadcn/ui in components/ui)
 convex/
   lib/functions.ts   The four privilege wrappers (the RBAC choke point)
@@ -266,8 +267,8 @@ scripts/             sign-and-send.mts (manual endpoint testing)
   now recommends instead of path matching in `proxy.ts`.
 - **Data:** retention policies for `automationEvents` and `webhookDeliveries`, account deletion
   and export, and timezone-aware due dates (today "overdue" means after the end date in UTC).
-- **Scale:** the lists are capped (200 tools, 100 loans per view) and counts are bounded reads;
-  real pagination and `@convex-dev/aggregate` counters would replace them.
+- **Scale:** every list is cursor-paginated, but the nav badge counts are bounded
+  reads capped at 99; `@convex-dev/aggregate` counters would give exact totals.
 - **Ops and testing:** separate dev, staging and prod deployments; workflows promoted through
   CI; automated tests (below).
 
