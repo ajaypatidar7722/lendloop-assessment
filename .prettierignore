@@ -1,0 +1,6 @@
+.next
+node_modules
+package-lock.json
+convex/_generated
+# n8n exports are machine-written; keep them byte-for-byte as exported
+n8n/workflows
