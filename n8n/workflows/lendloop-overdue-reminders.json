@@ -34,7 +34,7 @@
         300
       ],
       "parameters": {
-        "jsCode": "// Signs a request to Convex: HMAC-SHA256 over `${timestamp}.${rawBody}` with\n// LENDLOOP_INBOUND_SECRET, read from the container env (n8n/.env), never stored here.\nconst crypto = require('crypto');\nfunction signed(body) {\n  const raw = body === undefined ? '' : JSON.stringify(body);\n  const timestamp = String(Math.floor(Date.now() / 1000));\n  const signature = crypto\n    .createHmac('sha256', $env.LENDLOOP_INBOUND_SECRET)\n    .update(`${timestamp}.${raw}`)\n    .digest('hex');\n  return { raw, timestamp, signature };\n}\n\n// GET has no body, so the signature covers `${timestamp}.` only.\nreturn [{ json: signed(undefined) }];\n"
+        "jsCode": "// Signs a request to Convex: HMAC-SHA256 over `${timestamp}.${rawBody}` with\n// LENDLOOP_INBOUND_SECRET (see setting() below), never stored here.\n// Settings come from n8n Variables ($vars) on n8n Cloud, or from the container env\n// (n8n/.env) when self-hosted. Neither is stored in this workflow.\nfunction setting(name, fallback) {\n  let value = $vars?.[name];\n  if (!value) {\n    try {\n      value = $env[name];\n    } catch {\n      // n8n Cloud blocks $env; the value must then come from Variables.\n    }\n  }\n  if (value) return value;\n  if (fallback !== undefined) return fallback;\n  throw new Error(`${name} is not set: add it as an n8n Variable (n8n Cloud) or in n8n/.env (self-hosted)`);\n}\n\nconst crypto = require('crypto');\nfunction signed(body) {\n  const raw = body === undefined ? '' : JSON.stringify(body);\n  const timestamp = String(Math.floor(Date.now() / 1000));\n  const signature = crypto\n    .createHmac('sha256', setting('LENDLOOP_INBOUND_SECRET'))\n    .update(`${timestamp}.${raw}`)\n    .digest('hex');\n  return { raw, timestamp, signature };\n}\n\n// GET has no body, so the signature covers `${timestamp}.` only.\nreturn [{ json: signed(undefined) }];\n"
       }
     },
     {
@@ -48,7 +48,7 @@
       ],
       "parameters": {
         "method": "GET",
-        "url": "={{ $env.CONVEX_SITE_URL }}/n8n/overdue-loans",
+        "url": "={{ ($vars.CONVEX_SITE_URL || $env.CONVEX_SITE_URL) }}/n8n/overdue-loans",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -97,7 +97,7 @@
         "toEmail": "={{ $json.borrower.email }}",
         "subject": "=Reminder: please return the {{ $json.toolName }}",
         "emailFormat": "text",
-        "text": "=Hi {{ $json.borrower.firstName }},\n\nThe {{ $json.toolName }} you borrowed was due back on {{ $json.endDate }} ({{ $json.daysOverdue }} day{{ $json.daysOverdue === 1 ? '' : 's' }} ago). Please return it to its owner, who will mark it returned in LendLoop.\n\n{{ $env.LENDLOOP_APP_URL }}/requests?tab=borrowing\n\n\u2014 LendLoop",
+        "text": "=Hi {{ $json.borrower.firstName }},\n\nThe {{ $json.toolName }} you borrowed was due back on {{ $json.endDate }} ({{ $json.daysOverdue }} day{{ $json.daysOverdue === 1 ? '' : 's' }} ago). Please return it to its owner, who will mark it returned in LendLoop.\n\n{{ ($vars.LENDLOOP_APP_URL || $env.LENDLOOP_APP_URL) }}/requests?tab=borrowing\n\n— LendLoop",
         "options": {
           "appendAttribution": false
         }
@@ -123,7 +123,7 @@
         300
       ],
       "parameters": {
-        "jsCode": "// Signs a request to Convex: HMAC-SHA256 over `${timestamp}.${rawBody}` with\n// LENDLOOP_INBOUND_SECRET, read from the container env (n8n/.env), never stored here.\nconst crypto = require('crypto');\nfunction signed(body) {\n  const raw = body === undefined ? '' : JSON.stringify(body);\n  const timestamp = String(Math.floor(Date.now() / 1000));\n  const signature = crypto\n    .createHmac('sha256', $env.LENDLOOP_INBOUND_SECRET)\n    .update(`${timestamp}.${raw}`)\n    .digest('hex');\n  return { raw, timestamp, signature };\n}\n\n// Reports each reminder's outcome. idempotencyKey (reminder:<loanId>:<date>)\n// came from Convex, so a retried write-back never creates a second record.\nconst loan = $('Split overdue loans').item.json;\nconst error = $json.error;\nconst failed = error !== undefined;\nreturn {\n  json: signed({\n    loanId: loan.loanId,\n    idempotencyKey: loan.idempotencyKey,\n    status: failed ? 'failed' : 'sent',\n    detail: failed\n      ? String(error?.message ?? error).slice(0, 500)\n      : `Reminder emailed (${loan.daysOverdue} day${loan.daysOverdue === 1 ? '' : 's'} overdue)`,\n  }),\n};\n",
+        "jsCode": "// Signs a request to Convex: HMAC-SHA256 over `${timestamp}.${rawBody}` with\n// LENDLOOP_INBOUND_SECRET (see setting() below), never stored here.\n// Settings come from n8n Variables ($vars) on n8n Cloud, or from the container env\n// (n8n/.env) when self-hosted. Neither is stored in this workflow.\nfunction setting(name, fallback) {\n  let value = $vars?.[name];\n  if (!value) {\n    try {\n      value = $env[name];\n    } catch {\n      // n8n Cloud blocks $env; the value must then come from Variables.\n    }\n  }\n  if (value) return value;\n  if (fallback !== undefined) return fallback;\n  throw new Error(`${name} is not set: add it as an n8n Variable (n8n Cloud) or in n8n/.env (self-hosted)`);\n}\n\nconst crypto = require('crypto');\nfunction signed(body) {\n  const raw = body === undefined ? '' : JSON.stringify(body);\n  const timestamp = String(Math.floor(Date.now() / 1000));\n  const signature = crypto\n    .createHmac('sha256', setting('LENDLOOP_INBOUND_SECRET'))\n    .update(`${timestamp}.${raw}`)\n    .digest('hex');\n  return { raw, timestamp, signature };\n}\n\n// Reports each reminder's outcome. idempotencyKey (reminder:<loanId>:<date>)\n// came from Convex, so a retried write-back never creates a second record.\nconst loan = $('Split overdue loans').item.json;\nconst error = $json.error;\nconst failed = error !== undefined;\nreturn {\n  json: signed({\n    loanId: loan.loanId,\n    idempotencyKey: loan.idempotencyKey,\n    status: failed ? 'failed' : 'sent',\n    detail: failed\n      ? String(error?.message ?? error).slice(0, 500)\n      : `Reminder emailed (${loan.daysOverdue} day${loan.daysOverdue === 1 ? '' : 's'} overdue)`,\n  }),\n};\n",
         "mode": "runOnceForEachItem"
       }
     },
@@ -138,7 +138,7 @@
       ],
       "parameters": {
         "method": "POST",
-        "url": "={{ $env.CONVEX_SITE_URL }}/n8n/reminders",
+        "url": "={{ ($vars.CONVEX_SITE_URL || $env.CONVEX_SITE_URL) }}/n8n/reminders",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [

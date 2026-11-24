@@ -34,5 +34,4 @@ jobs:
 
       - run: npm run format:check
 
-      # No test script yet; this is a no-op until one is added
       - run: npm test --if-present

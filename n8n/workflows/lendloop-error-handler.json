@@ -25,7 +25,7 @@
       ],
       "parameters": {
         "fromEmail": "LendLoop <notifications@lendloop.local>",
-        "toEmail": "={{ $env.LENDLOOP_ALERT_EMAIL }}",
+        "toEmail": "={{ ($vars.LENDLOOP_ALERT_EMAIL || $env.LENDLOOP_ALERT_EMAIL) }}",
         "subject": "=[LendLoop] Workflow failed: {{ $json.workflow.name }}",
         "emailFormat": "text",
         "text": "=An n8n workflow failed.\n\nWorkflow: {{ $json.workflow.name }}\nNode: {{ $json.execution?.lastNodeExecuted ?? '(trigger)' }}\nError: {{ $json.execution?.error?.message ?? $json.trigger?.error?.message }}\n\nExecution: {{ $json.execution?.url ?? 'n/a' }}",
@@ -54,7 +54,7 @@
         420
       ],
       "parameters": {
-        "jsCode": "// Signs a request to Convex: HMAC-SHA256 over `${timestamp}.${rawBody}` with\n// LENDLOOP_INBOUND_SECRET, read from the container env (n8n/.env), never stored here.\nconst crypto = require('crypto');\nfunction signed(body) {\n  const raw = body === undefined ? '' : JSON.stringify(body);\n  const timestamp = String(Math.floor(Date.now() / 1000));\n  const signature = crypto\n    .createHmac('sha256', $env.LENDLOOP_INBOUND_SECRET)\n    .update(`${timestamp}.${raw}`)\n    .digest('hex');\n  return { raw, timestamp, signature };\n}\n\n// Reports the failed execution to Convex. executionId makes a retried report a no-op.\n// A trigger failure has no execution ID, so fall back to the trigger's timestamp.\nconst { execution, workflow, trigger } = $input.first().json;\nconst executionId = String(execution?.id ?? `trigger-${workflow?.id ?? 'unknown'}-${Date.now()}`);\nconst message = String(execution?.error?.message ?? trigger?.error?.message ?? 'Unknown error');\nreturn [\n  {\n    json: signed({\n      workflowName: workflow?.name ?? 'Unknown workflow',\n      executionId,\n      nodeName: execution?.lastNodeExecuted ?? undefined,\n      message: message.slice(0, 1000),\n    }),\n  },\n];\n"
+        "jsCode": "// Signs a request to Convex: HMAC-SHA256 over `${timestamp}.${rawBody}` with\n// LENDLOOP_INBOUND_SECRET (see setting() below), never stored here.\n// Settings come from n8n Variables ($vars) on n8n Cloud, or from the container env\n// (n8n/.env) when self-hosted. Neither is stored in this workflow.\nfunction setting(name, fallback) {\n  let value = $vars?.[name];\n  if (!value) {\n    try {\n      value = $env[name];\n    } catch {\n      // n8n Cloud blocks $env; the value must then come from Variables.\n    }\n  }\n  if (value) return value;\n  if (fallback !== undefined) return fallback;\n  throw new Error(`${name} is not set: add it as an n8n Variable (n8n Cloud) or in n8n/.env (self-hosted)`);\n}\n\nconst crypto = require('crypto');\nfunction signed(body) {\n  const raw = body === undefined ? '' : JSON.stringify(body);\n  const timestamp = String(Math.floor(Date.now() / 1000));\n  const signature = crypto\n    .createHmac('sha256', setting('LENDLOOP_INBOUND_SECRET'))\n    .update(`${timestamp}.${raw}`)\n    .digest('hex');\n  return { raw, timestamp, signature };\n}\n\n// Reports the failed execution to Convex. executionId makes a retried report a no-op.\n// A trigger failure has no execution ID, so fall back to the trigger's timestamp.\nconst { execution, workflow, trigger } = $input.first().json;\nconst executionId = String(execution?.id ?? `trigger-${workflow?.id ?? 'unknown'}-${Date.now()}`);\nconst message = String(execution?.error?.message ?? trigger?.error?.message ?? 'Unknown error');\nreturn [\n  {\n    json: signed({\n      workflowName: workflow?.name ?? 'Unknown workflow',\n      executionId,\n      nodeName: execution?.lastNodeExecuted ?? undefined,\n      message: message.slice(0, 1000),\n    }),\n  },\n];\n"
       }
     },
     {
@@ -68,7 +68,7 @@
       ],
       "parameters": {
         "method": "POST",
-        "url": "={{ $env.CONVEX_SITE_URL }}/n8n/workflow-errors",
+        "url": "={{ ($vars.CONVEX_SITE_URL || $env.CONVEX_SITE_URL) }}/n8n/workflow-errors",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
