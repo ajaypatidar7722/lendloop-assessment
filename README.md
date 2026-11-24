@@ -53,10 +53,13 @@ All of these are done; see [Features](#features).
 
 ### Test accounts
 
-| Role  | Email                             | Password             |
-| ----- | --------------------------------- | -------------------- |
-| Admin | `ajaypatidar7722+admin@gmail.com` | `Ajay_Patidar_Admin` |
-| User  | `ajaypatidar7722+user@gmail.com`  | `Ajay_Patidar_User`  |
+| Role  | Email                                        | Password             |
+| ----- | -------------------------------------------- | -------------------- |
+| Admin | `ajaypatidar7722+admin+clerk_test@gmail.com` | `Ajay_Patidar_Admin` |
+| User  | `ajaypatidar7722+user+clerk_test@gmail.com`  | `Ajay_Patidar_User`  |
+
+If Clerk asks for a verification code, enter **`424242`**. Emails containing `+clerk_test`
+are Clerk test addresses, so no real code is sent and this fixed code always works.
 
 These are test-only accounts. Sign in as one in a normal window and the other in a private
 window to try both sides of a loan. They exist only in the author's Clerk instance.
