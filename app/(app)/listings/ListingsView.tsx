@@ -1,11 +1,12 @@
 "use client";
 
-import { useMutation, useQuery } from "convex/react";
+import { useMutation, usePaginatedQuery } from "convex/react";
 import { PencilIcon, PlusIcon, Trash2Icon } from "lucide-react";
 import ConfirmButton from "@/components/ConfirmButton";
 import EmptyState from "@/components/EmptyState";
 import ListSkeleton from "@/components/ListSkeleton";
 import PageHeader from "@/components/PageHeader";
+import InfiniteScroll from "@/components/InfiniteScroll";
 import ToolCard from "@/components/ToolCard";
 import ToolFormDialog from "@/components/ToolFormDialog";
 import { Button } from "@/components/ui/button";
@@ -13,15 +14,19 @@ import { withToast } from "@/lib/errors";
 import { useToday } from "@/lib/hooks";
 import { api } from "@/convex/_generated/api";
 
+const PAGE_SIZE = 12;
+
 export default function ListingsView() {
   const today = useToday();
-  const tools = useQuery(api.tools.myListings, today ? { today } : "skip");
+  const tools = usePaginatedQuery(api.tools.myListings, today ? { today } : "skip", {
+    initialNumItems: PAGE_SIZE,
+  });
   const remove = useMutation(api.tools.remove);
 
   const addButton = (
     <ToolFormDialog
       trigger={
-        <Button>
+        <Button size="lg" className="shadow-sm">
           <PlusIcon data-icon="inline-start" /> List a tool
         </Button>
       }
@@ -35,17 +40,17 @@ export default function ListingsView() {
         description="Tools you're lending. You approve every request."
         action={addButton}
       />
-      {tools === undefined ? (
+      {tools.status === "LoadingFirstPage" ? (
         <ListSkeleton grid rows={3} />
-      ) : tools.length === 0 ? (
+      ) : tools.results.length === 0 ? (
         <EmptyState
           title="You haven't listed anything yet"
           description="A drill, a ladder, a camping stove: whatever you can spare for a few days."
           action={addButton}
         />
       ) : (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {tools.map((tool) => (
+        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+          {tools.results.map((tool) => (
             <ToolCard
               key={tool._id}
               tool={tool}
@@ -81,6 +86,7 @@ export default function ListingsView() {
           ))}
         </div>
       )}
+      <InfiniteScroll list={tools} pageSize={PAGE_SIZE} />
     </>
   );
 }

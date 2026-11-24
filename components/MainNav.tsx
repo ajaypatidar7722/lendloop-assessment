@@ -7,13 +7,13 @@ import { api } from "@/convex/_generated/api";
 import { useMe } from "@/lib/hooks";
 import { cn } from "@/lib/utils";
 
-type CountKey = "incoming" | "myRequests";
+type Counts = { incoming: number; myRequests: number };
 
-const LINKS: { href: string; label: string; countKey?: CountKey }[] = [
-  { href: "/app/tools", label: "Tools" },
-  { href: "/app/listings", label: "My listings" },
-  { href: "/app/requests", label: "My requests", countKey: "myRequests" },
-  { href: "/app/incoming", label: "Incoming", countKey: "incoming" },
+const LINKS: { href: string; label: string; count?: (c: Counts) => number }[] = [
+  { href: "/tools", label: "Tools" },
+  { href: "/listings", label: "My listings" },
+  // Pending on both sides: waiting for my decision + waiting on lenders.
+  { href: "/requests", label: "Requests", count: (c) => c.incoming + c.myRequests },
 ];
 
 /** Matches BADGE_CAP in convex/loans.ts: the query reads at most this many + 1. */
@@ -38,7 +38,7 @@ export default function MainNav() {
       {links.map((link) => {
         const { href, label } = link;
         const active = pathname === href || pathname.startsWith(`${href}/`);
-        const count = "countKey" in link && link.countKey ? (counts?.[link.countKey] ?? 0) : 0;
+        const count = "count" in link && link.count && counts ? link.count(counts) : 0;
         return (
           <Link
             key={href}

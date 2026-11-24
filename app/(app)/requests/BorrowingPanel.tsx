@@ -1,48 +1,60 @@
 "use client";
 
-import { useMutation, useQuery } from "convex/react";
+import { useMutation, usePaginatedQuery } from "convex/react";
 import Link from "next/link";
+import { useState } from "react";
 import ConfirmButton from "@/components/ConfirmButton";
 import EmptyState from "@/components/EmptyState";
 import ListSkeleton from "@/components/ListSkeleton";
 import LoanCard from "@/components/LoanCard";
-import PageHeader from "@/components/PageHeader";
+import InfiniteScroll from "@/components/InfiniteScroll";
+import StatusFilter from "@/components/StatusFilter";
 import { Button } from "@/components/ui/button";
 import { withToast } from "@/lib/errors";
-import { formatDay } from "@/lib/format";
+import { formatDay, STATUS_LABELS } from "@/lib/format";
 import { useToday } from "@/lib/hooks";
 import { api } from "@/convex/_generated/api";
+import type { LoanStatus } from "@/convex/lib/validators";
 
-export default function RequestsView() {
+const PAGE_SIZE = 8;
+
+/** Things I've asked to borrow: cancel while pending, see overdue reminders. */
+export default function BorrowingPanel({ pendingCount }: { pendingCount?: number }) {
   const today = useToday();
-  const loans = useQuery(api.loans.myRequests, today ? { today } : "skip");
+  const [status, setStatus] = useState<LoanStatus | undefined>();
+  const loans = usePaginatedQuery(api.loans.myRequests, today ? { today, status } : "skip", {
+    initialNumItems: PAGE_SIZE,
+  });
   const cancel = useMutation(api.loans.cancel);
 
   return (
-    <>
-      <PageHeader title="My requests" description="Things you've asked to borrow." />
-      {loans === undefined ? (
+    <div className="flex flex-col gap-5">
+      <div>
+        <StatusFilter value={status} onChange={setStatus} pendingCount={pendingCount} />
+      </div>
+
+      {loans.status === "LoadingFirstPage" ? (
         <ListSkeleton rows={4} />
-      ) : loans.length === 0 ? (
+      ) : loans.results.length === 0 ? (
         <EmptyState
-          title="No requests yet"
+          title={status ? `No ${STATUS_LABELS[status].toLowerCase()} requests` : "No requests yet"}
           description="Find something you need and pick the dates."
           action={
             <Button asChild>
-              <Link href="/app/tools">Browse tools</Link>
+              <Link href="/tools">Browse tools</Link>
             </Button>
           }
         />
       ) : (
         <div className="flex flex-col gap-3">
-          {loans.map((loan) => (
+          {loans.results.map((loan) => (
             <LoanCard
               key={loan._id}
               loan={loan}
               role="borrower"
               footer={
                 loan.isOverdue ? (
-                  <p className="text-sm text-destructive">
+                  <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
                     This was due back on {formatDay(loan.endDate)}. Please return it to{" "}
                     {loan.counterparty.firstName}.
                   </p>
@@ -67,6 +79,7 @@ export default function RequestsView() {
           ))}
         </div>
       )}
-    </>
+      <InfiniteScroll list={loans} pageSize={PAGE_SIZE} />
+    </div>
   );
 }

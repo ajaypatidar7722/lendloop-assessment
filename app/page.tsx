@@ -30,7 +30,7 @@ export default function Home() {
               </Show>
               <Show when="signed-in">
                 <Button asChild size="lg" className="bg-white px-5 text-primary hover:bg-highlight">
-                  <Link href="/app/tools">
+                  <Link href="/tools">
                     Browse tools <ArrowRightIcon data-icon="inline-end" />
                   </Link>
                 </Button>
