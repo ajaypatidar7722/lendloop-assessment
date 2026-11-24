@@ -41,7 +41,9 @@ All of these are done; see [Features](#features).
   a returned loan is rejected, and a non-admin calling an admin function gets "forbidden".
 - All five notification types (request, approve, decline, cancel, return) reach the inbox. One
   delivery failed while n8n was misconfigured and went through on Convex's automatic retry.
-- On n8n Cloud, the notification webhook rejects an unsigned request with 401.
+- On n8n Cloud, request and cancellation emails reach the Mailtrap sandbox (see the
+  [screenshots](#automated-emails)), and the notification webhook rejects an unsigned request
+  with 401.
 - The overdue reminder workflow sends one email per overdue loan. Running it again the same day
   sends nothing and writes no duplicate record.
 - Signed endpoints: a valid signature gets 200. A bad, stale or missing signature gets 401.
@@ -102,6 +104,16 @@ Emails go to the author's Mailtrap sandbox, which catches them and delivers noth
 won't receive them. You can still see that each automation ran: every loan card shows what n8n
 did, e.g. "Lender notified of the request" or "Overdue reminder sent", and failures in red.
 To receive the emails yourself, see [Deployment](#deployment).
+
+Here is what they look like in the author's Mailtrap sandbox:
+
+**Request notification** (to the lender when someone asks to borrow their tool):
+
+![Mailtrap: "Ajay wants to borrow your Pressure washer" email to the lender, with a link to approve or decline](docs/screenshots/email-request.png)
+
+**Cancellation notification** (to the lender when the borrower cancels):
+
+![Mailtrap: "Ajay-User cancelled a request for your sniper" email to the lender](docs/screenshots/email-cancelled.png)
 
 The **overdue reminder** can't be checked from the app. It runs once a day in the author's n8n,
 which reviewers can't open, and the only overdue loan is a seeded one between demo users, so
